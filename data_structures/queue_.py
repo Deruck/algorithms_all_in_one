@@ -19,10 +19,10 @@ class Queue(Generic[T]):
             raise BufferError("queue is empty")
         return self.__deq[0]
 
-    def pop(self) -> None:
+    def pop(self) -> T:
         if (len(self.__deq) == 0):
             raise BufferError("queue is empty")
-        self.__deq.popleft()
+        return self.__deq.popleft()
 
     def size(self) -> int:
         return len(self.__deq)

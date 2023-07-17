@@ -15,9 +15,9 @@ class Stack(Generic[T]):
     def push(self, element: T) -> None:
         self.__list.append(element)
 
-    def pop(self) -> None:
+    def pop(self) -> T:
         try:
-            self.__list.pop()
+            return self.__list.pop()
         except IndexError:
             raise BufferError("stack is empty")
 
