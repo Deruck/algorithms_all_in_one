@@ -1,11 +1,8 @@
-from typing import Optional, TypeVar, Generic, Generator, Literal
+from typing import Optional, TypeVar, Generic, Generator, Literal, Type
 from dataclasses import dataclass
 
 from stack import Stack
 from queue_ import Queue
-
-NULL_REPR = "null"
-SERIALIZE_SPLIT = ", "
 
 T = TypeVar("T")
 @dataclass
@@ -26,15 +23,20 @@ class BinaryTree(Generic[T]):
     """反序列化"""
     def deserialize(
         self,
-        series: list[Optional[T]],
+        series: str,
         order: Literal["pre", "post", "level"],
-        disable_recursion: bool = False
+        disable_recursion: bool = False, 
+        split: str = ", ",
+        null_repr: str = "null"
     ):
+        str_list = series.split(split)
+        val_list = [self.__get_type()(s) if s != null_repr else None
+                    for s in str_list]
         if order == "pre":
             if disable_recursion:
-                self.root = self.__deserialize_preorder_no_recur(series)
+                self.root = self.__deserialize_preorder_no_recur(val_list)
             else:
-                self.root = self.__deserialize_preorder(series)
+                self.root = self.__deserialize_preorder(val_list)
         else:
             raise NotImplementedError("not implemented") 
 
@@ -42,10 +44,13 @@ class BinaryTree(Generic[T]):
     def serialize(
         self,
         order: Literal["pre", "post", "in", "level"],
-        disable_recursion: bool = False
+        disable_recursion: bool = False,
+        split: str = ", ",
+        null_repr: str = "null"
     ):
-        traverse_result = [str(node) for node in self.traverse(order, disable_recursion)]
-        return SERIALIZE_SPLIT.join(traverse_result)
+        traverse_result = [str(node) if node is not None else null_repr 
+                           for node in self.traverse(order, disable_recursion)]
+        return split.join(traverse_result)
 
     """遍历"""
     def traverse(
@@ -58,6 +63,12 @@ class BinaryTree(Generic[T]):
                 yield from self.__preorder_traverse_no_recur(self.root)
             else:
                 yield from self.__preorder_traverse(self.root)
+        elif order == "in" and not disable_recursion:
+            yield from self.__inorder_traverse(self.root)
+        elif order == "post" and not disable_recursion:
+            yield from self.__postorder_traverse(self.root)
+        elif order == "level":
+            yield from self.__levelorder_traverse(self.root)
         else:
             raise NotImplementedError("not implemented")
 
@@ -95,22 +106,22 @@ class BinaryTree(Generic[T]):
         node_stk.push(root)
         while not series_que.is_empty():
             r"""循环逻辑
-                                       ...
-                                        |
-                                        O
-                                      /
-                                     O
-                                   /   \
-                                  O     O  <- (2) 找到下一轮循环起点
-                                 / \   /
-            (1)找到左子树栈尽头 -> X  X  ...
+                                                      ...
+                                                      /
+                                                     O
+                                                    /
+                                                   O
+                                                 /   \
+                                                O     O  <- (2) 找到下一轮循环起点(连续null后的第一个非null节点)
+                                               / \   /
+            (1)找到左子树栈尽头(第一个null节点) -> X  X  ...  <- (3) 下一轮循环
             """
             while series_que.front() is not None:  # (1)
                 new_node = BinaryTreeNode[T](series_que.pop())  # type:ignore
                 node_stk.top().left = new_node
                 node_stk.push(new_node)
-            assert series_que.pop() is None, ValueError("invalid series")  # (2)
-            while not series_que.is_empty() and series_que.front() is None:
+            assert series_que.pop() is None, ValueError("invalid series")
+            while not series_que.is_empty() and series_que.front() is None:  # (2)
                 series_que.pop()
                 node_stk.pop()
             if not series_que.is_empty():
@@ -156,9 +167,9 @@ class BinaryTree(Generic[T]):
         if root is None:
             yield root
         else:
-            yield from cls.__preorder_traverse(root.left)
+            yield from cls.__inorder_traverse(root.left)
             yield root
-            yield from cls.__preorder_traverse(root.right)
+            yield from cls.__inorder_traverse(root.right)
 
     """后序遍历"""
     @classmethod
@@ -169,9 +180,24 @@ class BinaryTree(Generic[T]):
         if root is None:
             yield root
         else:
-            yield from cls.__preorder_traverse(root.left)
-            yield from cls.__preorder_traverse(root.right)
+            yield from cls.__postorder_traverse(root.left)
+            yield from cls.__postorder_traverse(root.right)
             yield root
+
+    """层序遍历"""
+    @classmethod
+    def __levelorder_traverse(
+        cls, 
+        root: Optional[BinaryTreeNode[T]]
+    ) -> Generator[Optional[BinaryTreeNode[T]], None, None]:
+        que = Queue[Optional[BinaryTreeNode]]()
+        que.push(root)
+        while not que.is_empty():
+            node = que.pop()
+            yield node
+            if node is not None:
+                que.push(node.left)
+                que.push(node.right)
 
     @classmethod
     def __visualize_node(cls, node: BinaryTreeNode[T], prefix: str = "", is_left: bool = True):
@@ -181,15 +207,47 @@ class BinaryTree(Generic[T]):
         if node.left:
             cls.__visualize_node(node.left, prefix + ("    " if is_left else "│   "), True)
 
+    def __get_type(self) -> Type[T]:
+        return self.__orig_class__.__args__[0]  # type: ignore
+
+
+
+
 if __name__ == "__main__":
-    print("[preorder]")
-    preorder: list[Optional[int]] = [1, 2, 3, 4, None, None, 5, 6, None, None, None, 7, None, None, 8, None, 9, None, None]
+    """
+    │       ┌── 9
+    │       │   └── 10
+    │   ┌── 8
+    └── 1
+        │   ┌── 7
+        └── 2
+            │   ┌── 5
+            │   │   └── 6
+            └── 3
+                └── 4
+    """
+    print("\nTree\n")
     tree = BinaryTree[int]()
-    print("\n  * with recursion")
+    preorder = "1, 2, 3, 4, null, null, 5, 6, null, null, null, 7, null, null, 8, null, 9, 10, null, null, null"
     tree.deserialize(preorder, "pre")
     tree.visualize()
-    print(tree.serialize("pre"))
-    print("\n  * without recursion")
+
+    print("\n* preorder with recursion")
+    print(f"  * serialize: {tree.serialize('pre')}")
+    print("  * deserialize: ")
+    tree.deserialize(preorder, "pre")
+    tree.visualize()
+    print("\n* preorder without recursion")
+    print(f"  * serialize: {tree.serialize('pre', True)}")
+    print("  * deserialize: ")
     tree.deserialize(preorder, "pre", True)
     tree.visualize()
-    print(tree.serialize("pre", True))
+
+    print("\n* inorder with recursion")
+    print(f"  * serialize: {tree.serialize('in')}")
+
+    print("\n* postorder with recursion")
+    print(f"  * serialize: {tree.serialize('post')}")
+
+    print("\n* levelorder")
+    print(f"  * serialize: {tree.serialize('level')}")
